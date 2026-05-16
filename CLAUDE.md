@@ -221,10 +221,4 @@ class AlpacaDataClientConfig(LiveDataClientConfig, frozen=True):
     ...
 ```
 
----
-
-## Task Queue
-
-Implementation work is tracked in `backlog/tasks/`. Tasks are ordered by dependency — complete them in ID order. Each task is designed to be completed by a **single agent** end-to-end. Pick the lowest-numbered `To Do` task and mark it `In Progress` before starting.
-
 Reference the Binance adapter source heavily — it is the most complete nautilus-trader adapter and covers every pattern you'll need.
