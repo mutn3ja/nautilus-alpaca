@@ -1,0 +1,25 @@
+"backlog/tasks/task-007 - AlpacaExecutionClient.md"
+  ec02bada9d85eec7 4,165-173
+nautilus_alpaca/execution.py
+  ec02bada9d85eec7 1-1063
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "f1ba514deb5705145cc3033cf290d66745e0eec1",
+  "prompts": {
+    "ec02bada9d85eec7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb041139-dcc0-4907-970c-6ef236e997ee",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Preet Mutneja",
+      "messages": [],
+      "total_additions": 1073,
+      "total_deletions": 10,
+      "accepted_lines": 1073,
+      "overriden_lines": 0
+    }
+  }
+}
