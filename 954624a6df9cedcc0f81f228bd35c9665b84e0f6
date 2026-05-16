@@ -1,0 +1,21 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "954624a6df9cedcc0f81f228bd35c9665b84e0f6",
+  "prompts": {
+    "16bfab0056715ce7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4eae67c8-96db-4355-b5b6-c11d56bc20cc",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Preet Mutneja",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 6,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}
