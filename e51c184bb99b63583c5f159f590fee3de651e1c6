@@ -1,0 +1,25 @@
+nautilus_alpaca/data.py
+  ec02bada9d85eec7 1-727
+"backlog/tasks/task-006 - AlpacaDataClient.md"
+  ec02bada9d85eec7 4,154-162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "e51c184bb99b63583c5f159f590fee3de651e1c6",
+  "prompts": {
+    "ec02bada9d85eec7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb041139-dcc0-4907-970c-6ef236e997ee",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Preet Mutneja",
+      "messages": [],
+      "total_additions": 737,
+      "total_deletions": 10,
+      "accepted_lines": 737,
+      "overriden_lines": 0
+    }
+  }
+}
