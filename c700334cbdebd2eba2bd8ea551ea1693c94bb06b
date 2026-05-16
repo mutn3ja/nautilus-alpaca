@@ -1,0 +1,23 @@
+CLAUDE.md
+  ec02bada9d85eec7 13-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "c700334cbdebd2eba2bd8ea551ea1693c94bb06b",
+  "prompts": {
+    "ec02bada9d85eec7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb041139-dcc0-4907-970c-6ef236e997ee",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Preet Mutneja",
+      "messages": [],
+      "total_additions": 13,
+      "total_deletions": 0,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    }
+  }
+}
