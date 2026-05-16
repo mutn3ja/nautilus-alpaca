@@ -1,0 +1,31 @@
+nautilus_alpaca/factories.py
+  ec02bada9d85eec7 1-201
+nautilus_alpaca/providers.py
+  ec02bada9d85eec7 73
+nautilus_alpaca/execution.py
+  ec02bada9d85eec7 147
+"backlog/tasks/task-008 - Factories and public API.md"
+  ec02bada9d85eec7 4,130-135
+nautilus_alpaca/__init__.py
+  ec02bada9d85eec7 1-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "0b23f79e869f0afb3676ef4deee38b74b17ab52d",
+  "prompts": {
+    "ec02bada9d85eec7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb041139-dcc0-4907-970c-6ef236e997ee",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Preet Mutneja",
+      "messages": [],
+      "total_additions": 234,
+      "total_deletions": 9,
+      "accepted_lines": 234,
+      "overriden_lines": 0
+    }
+  }
+}
