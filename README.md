@@ -128,12 +128,6 @@ All tests are pure unit tests using mocks — no live Alpaca credentials require
 
 ---
 
-## Implementation Status
-
-See [`backlog/tasks/`](backlog/tasks/) for the full task list and current implementation status.
-
----
-
 ## References
 
 - [Alpaca Markets API docs](https://docs.alpaca.markets/)
