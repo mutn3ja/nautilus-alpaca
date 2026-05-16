@@ -1,0 +1,25 @@
+tests/conftest.py
+  cf78386152e4bd1e 1-30
+tests/test_e2e_paper.py
+  cf78386152e4bd1e 96,99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "9017bec04286524f4bc7bbc4d5a18cdab3a99fcc",
+  "prompts": {
+    "cf78386152e4bd1e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd2bb0b8-d24a-4a26-9297-f5d9578ded05",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Preet Mutneja",
+      "messages": [],
+      "total_additions": 32,
+      "total_deletions": 1,
+      "accepted_lines": 32,
+      "overriden_lines": 0
+    }
+  }
+}
