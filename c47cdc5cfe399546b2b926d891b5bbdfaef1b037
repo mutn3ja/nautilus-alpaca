@@ -1,0 +1,23 @@
+tests/test_e2e_paper.py
+  72c7d44fe416f25d 445
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "c47cdc5cfe399546b2b926d891b5bbdfaef1b037",
+  "prompts": {
+    "72c7d44fe416f25d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "457ddf18-5ff8-4d1e-81c0-062e7063b315",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Preet Mutneja",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 2,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
