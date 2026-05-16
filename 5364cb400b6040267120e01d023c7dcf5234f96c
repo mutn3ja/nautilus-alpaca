@@ -1,0 +1,27 @@
+nautilus_alpaca/common/enums.py
+  ec02bada9d85eec7 1-76
+"backlog/tasks/task-002 - Common constants and enums.md"
+  ec02bada9d85eec7 4,68-73
+nautilus_alpaca/common/constants.py
+  ec02bada9d85eec7 1-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "5364cb400b6040267120e01d023c7dcf5234f96c",
+  "prompts": {
+    "ec02bada9d85eec7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb041139-dcc0-4907-970c-6ef236e997ee",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Preet Mutneja",
+      "messages": [],
+      "total_additions": 108,
+      "total_deletions": 7,
+      "accepted_lines": 108,
+      "overriden_lines": 0
+    }
+  }
+}
