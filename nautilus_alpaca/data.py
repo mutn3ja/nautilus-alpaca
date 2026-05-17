@@ -216,7 +216,7 @@ class AlpacaDataClient(LiveMarketDataClient):
 
         if self._stock_stream is not None:
             try:
-                self._stock_stream.stop()
+                await self._stock_stream.stop_ws()
             except Exception as e:
                 self._log.warning(f"Error stopping stock stream: {e}")
             self._stock_stream = None
@@ -232,7 +232,7 @@ class AlpacaDataClient(LiveMarketDataClient):
 
         if self._crypto_stream is not None:
             try:
-                self._crypto_stream.stop()
+                await self._crypto_stream.stop_ws()
             except Exception as e:
                 self._log.warning(f"Error stopping crypto stream: {e}")
             self._crypto_stream = None
@@ -285,13 +285,13 @@ class AlpacaDataClient(LiveMarketDataClient):
     def _ensure_stock_stream_running(self) -> None:
         """Start the stock stream background task if not already running."""
         if self._stock_stream is not None and self._stock_stream_task is None:
-            self._stock_stream_task = self.create_task(self._stock_stream.run())  # type: ignore[arg-type]
+            self._stock_stream_task = self.create_task(self._stock_stream._run_forever())
             self._log.info("Stock WebSocket stream started.")
 
     def _ensure_crypto_stream_running(self) -> None:
         """Start the crypto stream background task if not already running."""
         if self._crypto_stream is not None and self._crypto_stream_task is None:
-            self._crypto_stream_task = self.create_task(self._crypto_stream.run())  # type: ignore[arg-type]
+            self._crypto_stream_task = self.create_task(self._crypto_stream._run_forever())
             self._log.info("Crypto WebSocket stream started.")
 
     # -------------------------------------------------------------------------

@@ -49,22 +49,19 @@ def build_node() -> TradingNode:
         exec_clients={
             VENUE: AlpacaExecClientConfig(paper=True),
         },
-        strategies=[
-            EmaCrossoverConfig(
-                instrument_id=INSTRUMENT_ID,
-                bar_type=BAR_TYPE_STR,
-                fast_ema_period=10,
-                slow_ema_period=20,
-                trade_size="10",
-            ),
-        ],
     )
 
     node = TradingNode(config=config)
     node.add_data_client_factory(VENUE, AlpacaLiveDataClientFactory)
     node.add_exec_client_factory(VENUE, AlpacaLiveExecClientFactory)
-    node.add_strategy(EmaCrossover)
     node.build()
+    node.trader.add_strategy(EmaCrossover(EmaCrossoverConfig(
+        instrument_id=INSTRUMENT_ID,
+        bar_type=BAR_TYPE_STR,
+        fast_ema_period=10,
+        slow_ema_period=20,
+        trade_size="10",
+    )))
     return node
 
 
