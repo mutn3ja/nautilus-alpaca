@@ -590,23 +590,9 @@ class TestAccountAndPositions:
 # ---------------------------------------------------------------------------
 
 def _make_crypto_stream():
-    """Create a CryptoDataStream with a relaxed SSL context.
-
-    Python 3.13 on macOS tightened CA certificate validation (requires keyUsage
-    extension) which breaks Alpaca's WebSocket TLS handshake. We inject an
-    unverified SSL context via _websocket_params, which DataStream forwards
-    as **kwargs to websockets.legacy.connect(). This only affects E2E tests —
-    production code is unaffected.
-    """
-    import ssl
     from alpaca.data.live import CryptoDataStream
 
-    stream = CryptoDataStream(get_api_key(paper=True), get_api_secret(paper=True))
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    stream._websocket_params["ssl"] = ctx
-    return stream
+    return CryptoDataStream(get_api_key(paper=True), get_api_secret(paper=True))
 
 
 @pytest.fixture(scope="module")

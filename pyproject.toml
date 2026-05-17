@@ -3,7 +3,7 @@ name = "nautilus-alpaca"
 version = "0.1.0"
 description = "Alpaca Markets adapter for nautilus-trader"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "nautilus-trader>=1.210.0",
     "alpaca-py>=0.38.0",

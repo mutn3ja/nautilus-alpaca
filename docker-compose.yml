@@ -1,0 +1,14 @@
+services:
+  backtest:
+    build: .
+    environment:
+      - ALPACA_PAPER_API_KEY
+      - ALPACA_PAPER_API_SECRET
+    command: python -m examples.backtest
+
+  paper-trading:
+    build: .
+    environment:
+      - ALPACA_PAPER_API_KEY
+      - ALPACA_PAPER_API_SECRET
+    command: python -m examples.paper_trading
