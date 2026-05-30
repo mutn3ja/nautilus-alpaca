@@ -632,18 +632,17 @@ class AlpacaExecutionClient(LiveExecutionClient):
                 else:
                     order_side = OrderSide.BUY
 
-                # Determine fill quantity and price from update fields
-                fill_qty_str = getattr(update, "qty", None) or getattr(
-                    alpaca_order, "filled_qty", None
-                )
-                fill_price_str = getattr(update, "price", None) or getattr(
-                    alpaca_order, "filled_avg_price", None
-                )
+                # Use the per-event fill qty/price from the trade update. Do NOT
+                # fall back to the order's cumulative filled_qty / average
+                # filled_avg_price — on a partial fill that would over-report the
+                # size and report an average rather than this fill's price.
+                fill_qty_str = getattr(update, "qty", None)
+                fill_price_str = getattr(update, "price", None)
 
                 if fill_qty_str is None or fill_price_str is None:
                     self._log.warning(
                         f"Cannot generate fill for {venue_order_id}: "
-                        f"qty={fill_qty_str}, price={fill_price_str}"
+                        f"missing per-event qty={fill_qty_str}, price={fill_price_str}"
                     )
                     return
 
@@ -920,80 +919,113 @@ class AlpacaExecutionClient(LiveExecutionClient):
         self._log.info(f"Generated {len(reports)} OrderStatusReports")
         return reports
 
+    @staticmethod
+    def _ts_to_ns(value) -> int | None:
+        """Convert an Alpaca datetime/ISO-8601 string to nautilus nanoseconds."""
+        if value is None:
+            return None
+        try:
+            import datetime as _dt
+
+            if isinstance(value, str):
+                ts = _dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+            else:
+                ts = value
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=_dt.timezone.utc)
+            return int(ts.timestamp()) * 1_000_000_000 + ts.microsecond * 1_000
+        except Exception:
+            return None
+
+    async def _fetch_fill_activities(self, after=None) -> list:
+        """
+        Fetch FILL account activities, paginating via ``page_token``.
+
+        The account-activities endpoint reports one entry per execution (unique
+        id, per-fill qty/price and transaction time), unlike the orders endpoint
+        which only exposes cumulative ``filled_qty`` / average ``filled_avg_price``.
+        """
+        from alpaca.trading.requests import GetAccountActivitiesRequest
+        from alpaca.trading.enums import ActivityType
+
+        page_size = 100
+        activities: list = []
+        page_token = None
+
+        while True:
+            req_kwargs: dict[str, Any] = {
+                "activity_types": [ActivityType.FILL],
+                "page_size": page_size,
+            }
+            if after is not None:
+                req_kwargs["after"] = after
+            if page_token is not None:
+                req_kwargs["page_token"] = page_token
+
+            page = await asyncio.to_thread(
+                self._client.get_account_activities,
+                GetAccountActivitiesRequest(**req_kwargs),
+            )
+            if not page:
+                break
+            activities.extend(page)
+            if len(page) < page_size:
+                break
+            page_token = str(getattr(page[-1], "id", "")) or None
+            if page_token is None:
+                break
+
+        return activities
+
     async def generate_fill_reports(
         self,
         command: GenerateFillReports,
     ) -> list[FillReport]:
         """
-        Generate FillReports.
+        Generate FillReports from Alpaca account activities.
 
-        Alpaca has no dedicated fills endpoint; we synthesize FillReports
-        from filled order data (filled_qty, filled_avg_price, filled_at).
+        Each FILL activity is a single execution with its own id, quantity,
+        price and timestamp, so partial fills are represented individually and
+        each ``trade_id`` is unique per fill. (The orders endpoint only exposes
+        cumulative figures, which collapsed every fill of an order into one.)
         """
         self._log.debug("Requesting FillReports...")
 
         try:
-            from alpaca.trading.enums import QueryOrderStatus
-
-            symbols = (
-                [command.instrument_id.symbol.value]
-                if command.instrument_id is not None
-                else None
-            )
-            orders = await self._fetch_all_orders(QueryOrderStatus.ALL, symbols)
+            activities = await self._fetch_fill_activities(after=command.start)
         except Exception as e:
             self._log.error(f"Cannot generate FillReports: {e}")
             return []
 
+        symbol_filter = (
+            command.instrument_id.symbol.value
+            if command.instrument_id is not None
+            else None
+        )
+
         reports: list[FillReport] = []
+        now = self._clock.timestamp_ns()
 
-        for alpaca_order in orders:
-            filled_qty_str = getattr(alpaca_order, "filled_qty", None)
-            filled_avg_price_str = getattr(alpaca_order, "filled_avg_price", None)
-
-            if not filled_qty_str or not filled_avg_price_str:
+        for act in activities:
+            symbol = getattr(act, "symbol", None)
+            if symbol is None:
+                continue
+            if symbol_filter is not None and symbol != symbol_filter:
                 continue
 
+            qty_raw = getattr(act, "qty", None)
+            price_raw = getattr(act, "price", None)
+            if qty_raw is None or price_raw is None:
+                continue
             try:
-                filled_qty = Decimal(str(filled_qty_str))
+                qty = Decimal(str(qty_raw))
+                px = Decimal(str(price_raw))
             except Exception:
                 continue
-
-            if filled_qty <= 0:
+            if qty <= 0:
                 continue
 
-            try:
-                filled_px = Decimal(str(filled_avg_price_str))
-            except Exception:
-                continue
-
-            instrument_id = alpaca_symbol_to_instrument_id(alpaca_order.symbol)  # type: ignore[arg-type, union-attr]
-
-            # Filter by start if specified
-            if command.start is not None:
-                filled_at = getattr(alpaca_order, "filled_at", None)
-                if filled_at is not None:
-                    try:
-                        import datetime
-
-                        if isinstance(filled_at, str):
-                            ts = datetime.datetime.fromisoformat(
-                                filled_at.replace("Z", "+00:00")
-                            )
-                        else:
-                            ts = filled_at
-                        if ts.tzinfo is None:
-                            ts = ts.replace(tzinfo=datetime.timezone.utc)
-                        if ts < command.start:
-                            continue
-                    except Exception:
-                        pass
-
-            side_str = getattr(alpaca_order, "side", "buy")
-            order_side = (
-                OrderSide.BUY if str(side_str).lower() == "buy" else OrderSide.SELL
-            )
-
+            instrument_id = alpaca_symbol_to_instrument_id(symbol)
             instrument = self._instrument_provider.find(instrument_id=instrument_id)
             quote_currency = (
                 instrument.quote_currency
@@ -1001,20 +1033,34 @@ class AlpacaExecutionClient(LiveExecutionClient):
                 else Currency.from_str("USD")
             )
 
+            side_str = str(getattr(act, "side", "buy")).lower()
+            order_side = OrderSide.BUY if "buy" in side_str else OrderSide.SELL
+
+            order_id = getattr(act, "order_id", None)
+            exec_id = getattr(act, "id", None) or order_id
+            venue_order_id = (
+                VenueOrderId(str(order_id)) if order_id else VenueOrderId(str(exec_id))
+            )
+
+            ts_event = self._ts_to_ns(getattr(act, "transaction_time", None)) or now
+
             report = FillReport(
                 account_id=self.account_id,
                 instrument_id=instrument_id,
-                venue_order_id=VenueOrderId(str(alpaca_order.id)),  # type: ignore[union-attr]
+                venue_order_id=venue_order_id,
                 venue_position_id=None,
-                trade_id=TradeId(str(alpaca_order.id)),  # type: ignore[union-attr]
+                # Per-execution id keeps partial fills distinct. Alpaca is
+                # commission-free for equities; crypto fees are not exposed
+                # per fill, so commission is reported as zero.
+                trade_id=TradeId(str(exec_id)),
                 order_side=order_side,
-                last_qty=Quantity.from_str(str(filled_qty)),
-                last_px=Price.from_str(str(filled_px)),
+                last_qty=Quantity.from_str(str(qty)),
+                last_px=Price.from_str(str(px)),
                 commission=Money(0, quote_currency),
                 liquidity_side=LiquiditySide.NO_LIQUIDITY_SIDE,
                 report_id=UUID4(),
-                ts_event=self._clock.timestamp_ns(),
-                ts_init=self._clock.timestamp_ns(),
+                ts_event=ts_event,
+                ts_init=now,
             )
             reports.append(report)
 
