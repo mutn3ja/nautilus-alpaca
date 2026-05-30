@@ -166,7 +166,7 @@ class AlpacaExecutionClient(LiveExecutionClient):
         await self._instrument_provider.initialize()
 
         # Fetch account and update account state
-        account = self._client.get_account()
+        account = await asyncio.to_thread(self._client.get_account)
         self._update_account_state(account)
         await self._await_account_registered()
 
@@ -268,7 +268,7 @@ class AlpacaExecutionClient(LiveExecutionClient):
 
         try:
             request = self._build_order_request(order)
-            response = self._client.submit_order(request)
+            response = await asyncio.to_thread(self._client.submit_order, request)
 
             venue_order_id = VenueOrderId(str(response.id))  # type: ignore[union-attr]
 
@@ -406,7 +406,9 @@ class AlpacaExecutionClient(LiveExecutionClient):
             return
 
         try:
-            self._client.cancel_order_by_id(UUID(venue_order_id.value))
+            await asyncio.to_thread(
+                self._client.cancel_order_by_id, UUID(venue_order_id.value)
+            )
             self._log.debug(f"Cancel sent for order {venue_order_id}")
             # The WebSocket "canceled" event will generate the OrderCanceled event
         except Exception as e:
@@ -429,15 +431,18 @@ class AlpacaExecutionClient(LiveExecutionClient):
                 from alpaca.trading.requests import GetOrdersRequest
                 from alpaca.trading.enums import QueryOrderStatus
 
-                open_orders = self._client.get_orders(
+                open_orders = await asyncio.to_thread(
+                    self._client.get_orders,
                     GetOrdersRequest(
                         status=QueryOrderStatus.OPEN,
                         symbols=[symbol],
-                    )
+                    ),
                 )
                 for alpaca_order in open_orders:
                     try:
-                        self._client.cancel_order_by_id(alpaca_order.id)  # type: ignore[union-attr]
+                        await asyncio.to_thread(
+                            self._client.cancel_order_by_id, alpaca_order.id  # type: ignore[union-attr]
+                        )
                     except Exception as e:
                         self._log.warning(
                             f"Failed to cancel order {alpaca_order.id} for {symbol}: {e}"  # type: ignore[union-attr]
@@ -447,7 +452,7 @@ class AlpacaExecutionClient(LiveExecutionClient):
         else:
             # Cancel all open orders
             try:
-                cancel_responses = self._client.cancel_orders()
+                cancel_responses = await asyncio.to_thread(self._client.cancel_orders)
                 self._log.info(
                     f"Canceled {len(cancel_responses) if cancel_responses else 0} open orders"
                 )
@@ -488,7 +493,9 @@ class AlpacaExecutionClient(LiveExecutionClient):
                 else None
             )
             req = ReplaceOrderRequest(qty=qty, limit_price=limit_price)  # type: ignore[arg-type]
-            self._client.replace_order_by_id(UUID(venue_order_id.value), req)
+            await asyncio.to_thread(
+                self._client.replace_order_by_id, UUID(venue_order_id.value), req
+            )
             self._log.debug(f"Modify sent for order {venue_order_id}")
             # The WebSocket "replaced" event will generate the OrderUpdated event
         except Exception as e:
@@ -710,10 +717,12 @@ class AlpacaExecutionClient(LiveExecutionClient):
 
         try:
             if command.venue_order_id is not None:
-                alpaca_order = self._client.get_order_by_id(command.venue_order_id.value)
+                alpaca_order = await asyncio.to_thread(
+                    self._client.get_order_by_id, command.venue_order_id.value
+                )
             elif command.client_order_id is not None:
-                alpaca_order = self._client.get_order_by_client_id(
-                    command.client_order_id.value
+                alpaca_order = await asyncio.to_thread(
+                    self._client.get_order_by_client_id, command.client_order_id.value
                 )
             else:
                 self._log.error(
@@ -749,7 +758,9 @@ class AlpacaExecutionClient(LiveExecutionClient):
             if command.open_only:
                 req_kwargs["status"] = QueryOrderStatus.OPEN
 
-            orders = self._client.get_orders(GetOrdersRequest(**req_kwargs))
+            orders = await asyncio.to_thread(
+                self._client.get_orders, GetOrdersRequest(**req_kwargs)
+            )
         except Exception as e:
             self._log.error(f"Cannot generate OrderStatusReports: {e}")
             return []
@@ -807,7 +818,9 @@ class AlpacaExecutionClient(LiveExecutionClient):
             if command.instrument_id is not None:
                 req_kwargs["symbols"] = [command.instrument_id.symbol.value]
 
-            orders = self._client.get_orders(GetOrdersRequest(**req_kwargs))
+            orders = await asyncio.to_thread(
+                self._client.get_orders, GetOrdersRequest(**req_kwargs)
+            )
         except Exception as e:
             self._log.error(f"Cannot generate FillReports: {e}")
             return []
@@ -898,9 +911,9 @@ class AlpacaExecutionClient(LiveExecutionClient):
         try:
             if command.instrument_id is not None:
                 symbol = command.instrument_id.symbol.value
-                positions = [self._client.get_open_position(symbol)]
+                positions = [await asyncio.to_thread(self._client.get_open_position, symbol)]
             else:
-                positions = self._client.get_all_positions()
+                positions = await asyncio.to_thread(self._client.get_all_positions)
         except Exception as e:
             # If position not found, return flat for specific instrument
             if command.instrument_id is not None:

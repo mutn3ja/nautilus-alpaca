@@ -614,7 +614,9 @@ class AlpacaDataClient(LiveMarketDataClient):
         if request.limit and request.limit > 0:
             req_kwargs["limit"] = request.limit
 
-        bars_response = client.get_stock_bars(StockBarsRequest(**req_kwargs))
+        bars_response = await asyncio.to_thread(
+            client.get_stock_bars, StockBarsRequest(**req_kwargs)
+        )
         bars = self._parse_bars_response(
             bars_response=bars_response,
             symbol=symbol,
@@ -663,7 +665,9 @@ class AlpacaDataClient(LiveMarketDataClient):
         if request.limit and request.limit > 0:
             req_kwargs["limit"] = request.limit
 
-        bars_response = client.get_crypto_bars(CryptoBarsRequest(**req_kwargs))
+        bars_response = await asyncio.to_thread(
+            client.get_crypto_bars, CryptoBarsRequest(**req_kwargs)
+        )
         bars = self._parse_bars_response(
             bars_response=bars_response,
             symbol=symbol,
