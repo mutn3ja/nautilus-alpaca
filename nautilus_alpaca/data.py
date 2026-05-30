@@ -282,16 +282,48 @@ class AlpacaDataClient(LiveMarketDataClient):
         """Return True if the symbol looks like a crypto pair (contains '/')."""
         return "/" in symbol
 
+    async def _supervise_stream(self, stream, label: str) -> None:
+        """
+        Run an alpaca-py stream, restarting it with backoff if its task dies.
+
+        alpaca-py's ``_run_forever`` has an internal reconnect loop, but if it
+        raises an unhandled error the task would otherwise die silently and the
+        feed would stop without recovery. This supervisor relaunches it (the
+        stream object keeps its subscriptions, so they are re-established) until
+        the task is cancelled on disconnect.
+        """
+        backoff = 1
+        while True:
+            try:
+                if hasattr(stream, "_running"):
+                    stream._running = False
+                await stream._run_forever()
+                self._log.warning(
+                    f"{label} WebSocket stream ended; reconnecting in {backoff}s",
+                )
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                self._log.warning(
+                    f"{label} WebSocket stream error: {e}; reconnecting in {backoff}s",
+                )
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 30)
+
     def _ensure_stock_stream_running(self) -> None:
         """Start the stock stream background task if not already running."""
         if self._stock_stream is not None and self._stock_stream_task is None:
-            self._stock_stream_task = self.create_task(self._stock_stream._run_forever())
+            self._stock_stream_task = self.create_task(
+                self._supervise_stream(self._stock_stream, "Stock"),
+            )
             self._log.info("Stock WebSocket stream started.")
 
     def _ensure_crypto_stream_running(self) -> None:
         """Start the crypto stream background task if not already running."""
         if self._crypto_stream is not None and self._crypto_stream_task is None:
-            self._crypto_stream_task = self.create_task(self._crypto_stream._run_forever())
+            self._crypto_stream_task = self.create_task(
+                self._supervise_stream(self._crypto_stream, "Crypto"),
+            )
             self._log.info("Crypto WebSocket stream started.")
 
     # -------------------------------------------------------------------------

@@ -118,6 +118,21 @@ node.build()
 
 ---
 
+## Operational Notes
+
+### WebSocket connection limits
+
+Alpaca enforces **one market-data WebSocket connection per account** (and a
+separate trading-updates stream). This adapter opens a stock data stream and a
+crypto data stream from the data client, plus a trade-updates stream from the
+execution client. Running the data and execution clients together is fine, but
+**do not** run a second process (or another app) using the same API keys at the
+same time, or Alpaca will reject the duplicate connection. The streams are
+supervised and will reconnect automatically with exponential backoff if a
+connection drops.
+
+---
+
 ## Running Tests
 
 ```bash
