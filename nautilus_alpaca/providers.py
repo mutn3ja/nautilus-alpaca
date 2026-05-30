@@ -5,6 +5,7 @@ and converts them into nautilus-trader ``Instrument`` objects.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from alpaca.trading.client import TradingClient
@@ -108,7 +109,7 @@ class AlpacaInstrumentProvider(InstrumentProvider):
             status=AssetStatus.ACTIVE,
             asset_class=asset_class_filter,
         )
-        assets = self._client.get_all_assets(req)
+        assets = await asyncio.to_thread(self._client.get_all_assets, req)
 
         count = 0
         for asset in assets:
@@ -150,7 +151,7 @@ class AlpacaInstrumentProvider(InstrumentProvider):
             # without the venue suffix — nautilus splits on the dot automatically.
             symbol = instrument_id.symbol.value
             try:
-                raw_asset = self._client.get_asset(symbol)
+                raw_asset = await asyncio.to_thread(self._client.get_asset, symbol)
                 instrument = self._parse_asset(raw_asset)
                 if instrument is not None:
                     self.add(instrument)
