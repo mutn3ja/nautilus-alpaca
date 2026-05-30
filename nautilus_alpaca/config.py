@@ -88,6 +88,10 @@ class AlpacaExecClientConfig(LiveExecClientConfig, frozen=True):
         The initial delay (milliseconds) between retries.
     retry_delay_max_ms : PositiveInt or None, default 10000
         The maximum delay (milliseconds) between retries.
+    account_polling_interval_mins : PositiveInt or None, default 60
+        The interval (minutes) between polling the Alpaca account for an updated
+        balance/buying-power snapshot. Set to ``None`` to disable periodic polling
+        (account state is still refreshed on fills).
 
     """
 
@@ -100,3 +104,4 @@ class AlpacaExecClientConfig(LiveExecClientConfig, frozen=True):
     max_retries: PositiveInt | None = 3
     retry_delay_initial_ms: PositiveInt | None = 1_000
     retry_delay_max_ms: PositiveInt | None = 10_000
+    account_polling_interval_mins: PositiveInt | None = 60

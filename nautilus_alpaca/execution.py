@@ -150,6 +150,7 @@ class AlpacaExecutionClient(LiveExecutionClient):
         )
         self._stream = None
         self._stream_task = None
+        self._update_account_task: asyncio.Task[None] | None = None
 
         # Set account ID
         self._set_account_id(AccountId(f"{name or 'ALPACA'}-{environment.value}-001"))
@@ -183,11 +184,26 @@ class AlpacaExecutionClient(LiveExecutionClient):
         # inside an already-running event loop.
         self._stream_task = self.create_task(self._stream._run_forever())
 
+        # Periodic account-state refresh
+        interval = self._config.account_polling_interval_mins
+        if interval:
+            self._update_account_task = self.create_task(
+                self._update_account_state_periodic(interval),
+            )
+
         self._log.info("Alpaca ExecutionClient connected.")
 
     async def _disconnect(self) -> None:
         """Disconnect from Alpaca: stop stream and cancel background tasks."""
         self._log.info("Disconnecting from Alpaca...")
+
+        if self._update_account_task is not None:
+            self._update_account_task.cancel()
+            try:
+                await self._update_account_task
+            except asyncio.CancelledError:
+                pass
+            self._update_account_task = None
 
         if self._stream is not None:
             try:
@@ -245,6 +261,26 @@ class AlpacaExecutionClient(LiveExecutionClient):
             reported=True,
             ts_event=self._clock.timestamp_ns(),
         )
+
+    async def _refresh_account_state(self) -> None:
+        """Fetch the latest account snapshot from Alpaca and publish it."""
+        try:
+            account = await asyncio.to_thread(self._client.get_account)
+            self._update_account_state(account)
+        except Exception as e:
+            self._log.warning(f"Failed to refresh account state: {e}")
+
+    async def _update_account_state_periodic(self, interval_mins: int) -> None:
+        """Periodically poll the Alpaca account for an updated balance snapshot."""
+        while True:
+            try:
+                await asyncio.sleep(interval_mins * 60)
+                await self._refresh_account_state()
+            except asyncio.CancelledError:
+                self._log.debug("Canceled task 'update_account_state'")
+                return
+            except Exception as e:
+                self._log.error(f"Error in periodic account-state update: {e}")
 
     # -------------------------------------------------------------------------
     # Retry helper
@@ -649,6 +685,9 @@ class AlpacaExecutionClient(LiveExecutionClient):
                     liquidity_side=LiquiditySide.NO_LIQUIDITY_SIDE,
                     ts_event=ts_event,
                 )
+
+                # A fill changes cash/buying-power — refresh account snapshot.
+                self.create_task(self._refresh_account_state())
 
             elif event == "canceled":
                 self.generate_order_canceled(
