@@ -37,7 +37,7 @@ export ALPACA_API_SECRET=your_live_secret
 ### 2. Run the example
 
 ```bash
-python main.py
+python examples/paper_trading.py
 ```
 
 The example builds a `TradingNode` wired with the Alpaca data and execution clients:
@@ -101,6 +101,8 @@ node.build()
 | `max_retries` | `int \| None` | `3` | Max retries for order submit/cancel/modify. |
 | `retry_delay_initial_ms` | `int \| None` | `1000` | Initial retry delay in milliseconds. |
 | `retry_delay_max_ms` | `int \| None` | `10000` | Maximum retry delay in milliseconds. |
+| `account_polling_interval_mins` | `int \| None` | `60` | How often (minutes) to refresh the account balance snapshot. `None` disables polling. |
+| `account_type` | `str` | `"cash"` | Alpaca account type: `"cash"` or `"margin"`. |
 
 ### AlpacaInstrumentProviderConfig
 
