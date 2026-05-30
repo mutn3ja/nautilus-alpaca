@@ -738,6 +738,57 @@ class AlpacaExecutionClient(LiveExecutionClient):
     # Reconciliation reports
     # -------------------------------------------------------------------------
 
+    async def _fetch_all_orders(self, status, symbols: list[str] | None = None) -> list:
+        """
+        Fetch every order matching ``status`` by walking Alpaca's paginated
+        orders endpoint.
+
+        Alpaca caps a single ``get_orders`` response (max 500) and requires
+        paging via the ``until`` timestamp. Without this, reconciliation would
+        silently drop orders (and their fills) on busy accounts.
+        """
+        from alpaca.trading.requests import GetOrdersRequest
+
+        page_size = 500
+        all_orders: list = []
+        seen: set[str] = set()
+        until = None
+
+        while True:
+            req_kwargs: dict[str, Any] = {"status": status, "limit": page_size}
+            if symbols:
+                req_kwargs["symbols"] = symbols
+            if until is not None:
+                req_kwargs["until"] = until
+
+            page = await asyncio.to_thread(
+                self._client.get_orders, GetOrdersRequest(**req_kwargs)
+            )
+            if not page:
+                break
+
+            new_orders = [o for o in page if str(o.id) not in seen]
+            if not new_orders:
+                # Page boundary returned only already-seen orders — stop.
+                break
+            for o in new_orders:
+                seen.add(str(o.id))
+            all_orders.extend(new_orders)
+
+            if len(page) < page_size:
+                break
+
+            # Page backwards using the oldest created_at in this page.
+            oldest = min(
+                (o.created_at for o in page if getattr(o, "created_at", None) is not None),
+                default=None,
+            )
+            if oldest is None:
+                break
+            until = oldest
+
+        return all_orders
+
     async def generate_order_status_report(
         self,
         command: GenerateOrderStatusReport,
@@ -782,18 +833,17 @@ class AlpacaExecutionClient(LiveExecutionClient):
         self._log.debug("Requesting OrderStatusReports...")
 
         try:
-            from alpaca.trading.requests import GetOrdersRequest
             from alpaca.trading.enums import QueryOrderStatus
 
-            req_kwargs: dict[str, Any] = {"status": QueryOrderStatus.ALL}
-            if command.instrument_id is not None:
-                req_kwargs["symbols"] = [command.instrument_id.symbol.value]
-            if command.open_only:
-                req_kwargs["status"] = QueryOrderStatus.OPEN
-
-            orders = await asyncio.to_thread(
-                self._client.get_orders, GetOrdersRequest(**req_kwargs)
+            status = (
+                QueryOrderStatus.OPEN if command.open_only else QueryOrderStatus.ALL
             )
+            symbols = (
+                [command.instrument_id.symbol.value]
+                if command.instrument_id is not None
+                else None
+            )
+            orders = await self._fetch_all_orders(status, symbols)
         except Exception as e:
             self._log.error(f"Cannot generate OrderStatusReports: {e}")
             return []
@@ -844,16 +894,14 @@ class AlpacaExecutionClient(LiveExecutionClient):
         self._log.debug("Requesting FillReports...")
 
         try:
-            from alpaca.trading.requests import GetOrdersRequest
             from alpaca.trading.enums import QueryOrderStatus
 
-            req_kwargs: dict[str, Any] = {"status": QueryOrderStatus.ALL}
-            if command.instrument_id is not None:
-                req_kwargs["symbols"] = [command.instrument_id.symbol.value]
-
-            orders = await asyncio.to_thread(
-                self._client.get_orders, GetOrdersRequest(**req_kwargs)
+            symbols = (
+                [command.instrument_id.symbol.value]
+                if command.instrument_id is not None
+                else None
             )
+            orders = await self._fetch_all_orders(QueryOrderStatus.ALL, symbols)
         except Exception as e:
             self._log.error(f"Cannot generate FillReports: {e}")
             return []
