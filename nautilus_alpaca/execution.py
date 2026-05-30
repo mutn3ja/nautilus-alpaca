@@ -181,8 +181,11 @@ class AlpacaExecutionClient(LiveExecutionClient):
         )
         self._stream.subscribe_trade_updates(self._handle_trade_update)
         # Use _run_forever() — the public run() calls asyncio.run() which cannot be used
-        # inside an already-running event loop.
-        self._stream_task = self.create_task(self._stream._run_forever())
+        # inside an already-running event loop. Wrapped in a supervisor so the
+        # trade-updates feed is relaunched if the task dies unexpectedly.
+        self._stream_task = self.create_task(
+            self._supervise_stream(self._stream, "Trading"),
+        )
 
         # Periodic account-state refresh
         interval = self._config.account_polling_interval_mins
@@ -281,6 +284,32 @@ class AlpacaExecutionClient(LiveExecutionClient):
                 return
             except Exception as e:
                 self._log.error(f"Error in periodic account-state update: {e}")
+
+    async def _supervise_stream(self, stream, label: str) -> None:
+        """
+        Run an alpaca-py stream, restarting it with backoff if its task dies.
+
+        Missing ``trade_updates`` from a silently-dead stream would leave order
+        state stale until the next reconciliation, so the stream is relaunched
+        (it keeps its subscriptions) until the task is cancelled on disconnect.
+        """
+        backoff = 1
+        while True:
+            try:
+                if hasattr(stream, "_running"):
+                    stream._running = False
+                await stream._run_forever()
+                self._log.warning(
+                    f"{label} WebSocket stream ended; reconnecting in {backoff}s",
+                )
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                self._log.warning(
+                    f"{label} WebSocket stream error: {e}; reconnecting in {backoff}s",
+                )
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 30)
 
     # -------------------------------------------------------------------------
     # Retry helper
