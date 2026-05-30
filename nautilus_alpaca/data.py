@@ -59,7 +59,8 @@ def _ts_ns(dt: datetime | str | None) -> int:
         dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return int(dt.timestamp() * 1e9)
+    # Integer math to avoid float rounding at nanosecond resolution.
+    return int(dt.timestamp()) * 1_000_000_000 + dt.microsecond * 1_000
 
 
 # ---------------------------------------------------------------------------
