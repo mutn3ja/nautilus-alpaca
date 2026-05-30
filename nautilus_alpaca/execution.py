@@ -23,6 +23,7 @@ from nautilus_trader.execution.messages import (
     GeneratePositionStatusReports,
     ModifyOrder,
     SubmitOrder,
+    SubmitOrderList,
 )
 from nautilus_trader.execution.reports import (
     FillReport,
@@ -62,6 +63,7 @@ from nautilus_trader.model.orders import (
     Order,
     StopLimitOrder,
     StopMarketOrder,
+    TrailingStopLimitOrder,
     TrailingStopMarketOrder,
 )
 
@@ -390,23 +392,22 @@ class AlpacaExecutionClient(LiveExecutionClient):
                 ts_event=self._clock.timestamp_ns(),
             )
 
-    def _build_order_request(self, order: Order):
-        """Build an alpaca-py order request from a nautilus Order."""
+    @staticmethod
+    def _order_qty(order: Order):
+        """Return an Alpaca order quantity (int for whole units, float otherwise)."""
+        qty_decimal = Decimal(str(order.quantity))
+        if qty_decimal == qty_decimal.to_integral_value():
+            return int(qty_decimal)
+        return float(qty_decimal)
+
+    def _alpaca_side_and_tif(self, order: Order):
+        """Return ``(AlpacaOrderSide, AlpacaTimeInForce)`` for a nautilus order."""
         from alpaca.trading.enums import OrderSide as AlpacaOrderSide
         from alpaca.trading.enums import TimeInForce as AlpacaTIF
-        from alpaca.trading.requests import (
-            LimitOrderRequest,
-            MarketOrderRequest,
-            StopLimitOrderRequest,
-            StopOrderRequest,
-            TrailingStopOrderRequest,
-        )
 
-        symbol = order.instrument_id.symbol.value
         side_str = nautilus_order_side_to_alpaca(order.side)
         alpaca_side = AlpacaOrderSide.BUY if side_str == "buy" else AlpacaOrderSide.SELL
 
-        # Determine TIF
         _order_type_str, tif_str = nautilus_order_type_to_alpaca(
             order.order_type, order.time_in_force
         )
@@ -418,14 +419,45 @@ class AlpacaExecutionClient(LiveExecutionClient):
             "opg": AlpacaTIF.OPG,
             "cls": AlpacaTIF.CLS,
         }
-        alpaca_tif = tif_map.get(tif_str, AlpacaTIF.DAY)
+        return alpaca_side, tif_map.get(tif_str, AlpacaTIF.DAY)
 
-        # Determine quantity — use int for whole shares, fractional as str
-        qty_decimal = Decimal(str(order.quantity))
-        if qty_decimal == qty_decimal.to_integral_value():
-            qty = int(qty_decimal)
+    @staticmethod
+    def _trailing_params(order) -> tuple[float | None, float | None]:
+        """
+        Return ``(trail_price, trail_percent)`` for an Alpaca trailing stop.
+
+        Honors the order's ``trailing_offset_type``: PRICE → absolute dollar
+        offset; PERCENTAGE → percent; BASIS_POINTS → percent (bps / 100).
+        """
+        offset = order.trailing_offset
+        if offset is None:
+            return None, None
+
+        offset_type = order.trailing_offset_type
+        if offset_type == TrailingOffsetType.PRICE:
+            return float(offset), None
+        elif offset_type == TrailingOffsetType.PERCENTAGE:
+            return None, float(offset)
+        elif offset_type == TrailingOffsetType.BASIS_POINTS:
+            return None, float(offset) / 100.0
         else:
-            qty = float(qty_decimal)
+            raise ValueError(
+                f"Unsupported trailing_offset_type for Alpaca: {offset_type}"
+            )
+
+    def _build_order_request(self, order: Order):
+        """Build an alpaca-py order request from a nautilus Order."""
+        from alpaca.trading.requests import (
+            LimitOrderRequest,
+            MarketOrderRequest,
+            StopLimitOrderRequest,
+            StopOrderRequest,
+            TrailingStopOrderRequest,
+        )
+
+        symbol = order.instrument_id.symbol.value
+        alpaca_side, alpaca_tif = self._alpaca_side_and_tif(order)
+        qty = self._order_qty(order)
 
         if isinstance(order, MarketOrder):
             return MarketOrderRequest(
@@ -468,19 +500,158 @@ class AlpacaExecutionClient(LiveExecutionClient):
             )
 
         elif isinstance(order, TrailingStopMarketOrder):
-            # Alpaca trailing stop: use trail_price or trail_percent
-            trail_price = float(order.trailing_offset) if order.trailing_offset else None
+            # Alpaca trailing stop accepts either an absolute trail_price or a
+            # trail_percent, depending on the order's trailing_offset_type.
+            trail_price, trail_percent = self._trailing_params(order)
             return TrailingStopOrderRequest(
                 symbol=symbol,
                 qty=qty,
                 side=alpaca_side,
                 time_in_force=alpaca_tif,
                 trail_price=trail_price,
+                trail_percent=trail_percent,
                 client_order_id=order.client_order_id.value,
+            )
+
+        elif isinstance(order, TrailingStopLimitOrder):
+            # Alpaca has no trailing-stop-limit order type.
+            raise ValueError(
+                "Alpaca does not support trailing-stop-limit orders; "
+                "use a trailing-stop (market) order instead."
             )
 
         else:
             raise ValueError(f"Unsupported order type for Alpaca: {order.order_type}")
+
+    async def _submit_order_list(self, command: SubmitOrderList) -> None:
+        """
+        Submit a bracket order list (entry + take-profit + stop-loss) to Alpaca.
+
+        The first order is the entry; a LIMIT child becomes the take-profit and
+        a STOP_MARKET/STOP_LIMIT child becomes the stop-loss, submitted as a
+        single Alpaca ``bracket`` order.
+        """
+        orders = command.order_list.orders
+
+        # Emit submitted for every order in the list up-front.
+        for order in orders:
+            if not order.is_closed:
+                self.generate_order_submitted(
+                    strategy_id=order.strategy_id,
+                    instrument_id=order.instrument_id,
+                    client_order_id=order.client_order_id,
+                    ts_event=self._clock.timestamp_ns(),
+                )
+
+        entry = orders[0]
+        take_profit = None
+        stop_loss = None
+        for child in orders[1:]:
+            if child.order_type == OrderType.LIMIT:
+                take_profit = child
+            elif child.order_type in (OrderType.STOP_MARKET, OrderType.STOP_LIMIT):
+                stop_loss = child
+
+        try:
+            request = self._build_bracket_request(entry, take_profit, stop_loss)
+            response = await self._request_with_retry(self._client.submit_order, request)
+        except Exception as e:
+            self._log.error(
+                f"Failed to submit bracket order list {command.order_list.id}: {e}"
+            )
+            for order in orders:
+                self.generate_order_rejected(
+                    strategy_id=order.strategy_id,
+                    instrument_id=order.instrument_id,
+                    client_order_id=order.client_order_id,
+                    reason=str(e),
+                    ts_event=self._clock.timestamp_ns(),
+                )
+            return
+
+        self.generate_order_accepted(
+            strategy_id=entry.strategy_id,
+            instrument_id=entry.instrument_id,
+            client_order_id=entry.client_order_id,
+            venue_order_id=VenueOrderId(str(response.id)),  # type: ignore[union-attr]
+            ts_event=self._clock.timestamp_ns(),
+        )
+
+        # Match child legs by type to assign venue_order_ids and accept them.
+        legs = list(getattr(response, "legs", None) or [])
+        for child in (take_profit, stop_loss):
+            if child is None:
+                continue
+            leg = self._match_leg(child, legs)
+            venue_order_id = (
+                VenueOrderId(str(leg.id))
+                if leg is not None
+                else VenueOrderId(child.client_order_id.value)
+            )
+            self.generate_order_accepted(
+                strategy_id=child.strategy_id,
+                instrument_id=child.instrument_id,
+                client_order_id=child.client_order_id,
+                venue_order_id=venue_order_id,
+                ts_event=self._clock.timestamp_ns(),
+            )
+
+    def _build_bracket_request(self, entry: Order, take_profit, stop_loss):
+        """Build an Alpaca bracket order request from entry/TP/SL nautilus orders."""
+        from alpaca.trading.enums import OrderClass
+        from alpaca.trading.requests import (
+            LimitOrderRequest,
+            MarketOrderRequest,
+            StopLossRequest,
+            TakeProfitRequest,
+        )
+
+        symbol = entry.instrument_id.symbol.value
+        alpaca_side, alpaca_tif = self._alpaca_side_and_tif(entry)
+        qty = self._order_qty(entry)
+
+        take_profit_req = None
+        if take_profit is not None:
+            take_profit_req = TakeProfitRequest(limit_price=float(take_profit.price))
+
+        stop_loss_req = None
+        if stop_loss is not None:
+            sl_kwargs: dict[str, Any] = {"stop_price": float(stop_loss.trigger_price)}
+            if stop_loss.order_type == OrderType.STOP_LIMIT:
+                sl_kwargs["limit_price"] = float(stop_loss.price)
+            stop_loss_req = StopLossRequest(**sl_kwargs)
+
+        common: dict[str, Any] = dict(
+            symbol=symbol,
+            qty=qty,
+            side=alpaca_side,
+            time_in_force=alpaca_tif,
+            order_class=OrderClass.BRACKET,
+            client_order_id=entry.client_order_id.value,
+            take_profit=take_profit_req,
+            stop_loss=stop_loss_req,
+        )
+
+        if isinstance(entry, LimitOrder):
+            return LimitOrderRequest(limit_price=float(entry.price), **common)
+        elif isinstance(entry, MarketOrder):
+            return MarketOrderRequest(**common)
+        else:
+            raise ValueError(
+                f"Unsupported bracket entry order type for Alpaca: {entry.order_type}"
+            )
+
+    @staticmethod
+    def _match_leg(child: Order, legs: list):
+        """Find the Alpaca child leg corresponding to a nautilus TP/SL order."""
+        want_limit = child.order_type == OrderType.LIMIT
+        for leg in legs:
+            leg_type = str(getattr(leg, "type", "")).lower()
+            if want_limit and leg_type == "limit":
+                return leg
+            if not want_limit and leg_type in ("stop", "stop_limit"):
+                return leg
+        return None
 
     async def _cancel_order(self, command: CancelOrder) -> None:
         """Cancel a single order by venue_order_id."""
