@@ -247,6 +247,39 @@ class AlpacaExecutionClient(LiveExecutionClient):
         )
 
     # -------------------------------------------------------------------------
+    # Retry helper
+    # -------------------------------------------------------------------------
+
+    async def _request_with_retry(self, func, *args, **kwargs):
+        """
+        Run a synchronous Alpaca REST call off the event loop with retries.
+
+        Uses ``max_retries``, ``retry_delay_initial_ms`` and ``retry_delay_max_ms``
+        from the client configuration with exponential backoff. Order submission
+        is idempotent on ``client_order_id`` (Alpaca rejects duplicates), so
+        retrying a submit cannot create a second order.
+        """
+        max_retries = self._config.max_retries or 0
+        delay_ms = self._config.retry_delay_initial_ms or 1_000
+        max_delay_ms = self._config.retry_delay_max_ms or 10_000
+
+        attempt = 0
+        while True:
+            try:
+                return await asyncio.to_thread(func, *args, **kwargs)
+            except Exception as e:
+                if attempt >= max_retries:
+                    raise
+                attempt += 1
+                wait_ms = min(delay_ms, max_delay_ms)
+                self._log.warning(
+                    f"Retrying {getattr(func, '__name__', func)!r} "
+                    f"(attempt {attempt}/{max_retries}) in {wait_ms} ms after error: {e}"
+                )
+                await asyncio.sleep(wait_ms / 1_000)
+                delay_ms = min(delay_ms * 2, max_delay_ms)
+
+    # -------------------------------------------------------------------------
     # Order command handlers
     # -------------------------------------------------------------------------
 
@@ -268,7 +301,7 @@ class AlpacaExecutionClient(LiveExecutionClient):
 
         try:
             request = self._build_order_request(order)
-            response = await asyncio.to_thread(self._client.submit_order, request)
+            response = await self._request_with_retry(self._client.submit_order, request)
 
             venue_order_id = VenueOrderId(str(response.id))  # type: ignore[union-attr]
 
@@ -406,7 +439,7 @@ class AlpacaExecutionClient(LiveExecutionClient):
             return
 
         try:
-            await asyncio.to_thread(
+            await self._request_with_retry(
                 self._client.cancel_order_by_id, UUID(venue_order_id.value)
             )
             self._log.debug(f"Cancel sent for order {venue_order_id}")
@@ -493,7 +526,7 @@ class AlpacaExecutionClient(LiveExecutionClient):
                 else None
             )
             req = ReplaceOrderRequest(qty=qty, limit_price=limit_price)  # type: ignore[arg-type]
-            await asyncio.to_thread(
+            await self._request_with_retry(
                 self._client.replace_order_by_id, UUID(venue_order_id.value), req
             )
             self._log.debug(f"Modify sent for order {venue_order_id}")
