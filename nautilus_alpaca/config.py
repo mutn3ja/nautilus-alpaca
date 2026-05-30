@@ -92,6 +92,9 @@ class AlpacaExecClientConfig(LiveExecClientConfig, frozen=True):
         The interval (minutes) between polling the Alpaca account for an updated
         balance/buying-power snapshot. Set to ``None`` to disable periodic polling
         (account state is still refreshed on fills).
+    account_type : str, default "cash"
+        The Alpaca account type: "cash" or "margin". Controls how the reported
+        balance is split into free/locked amounts.
 
     """
 
@@ -105,3 +108,4 @@ class AlpacaExecClientConfig(LiveExecClientConfig, frozen=True):
     retry_delay_initial_ms: PositiveInt | None = 1_000
     retry_delay_max_ms: PositiveInt | None = 10_000
     account_polling_interval_mins: PositiveInt | None = 60
+    account_type: str = "cash"

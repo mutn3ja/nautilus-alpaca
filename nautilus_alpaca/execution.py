@@ -125,18 +125,24 @@ class AlpacaExecutionClient(LiveExecutionClient):
         environment: AlpacaEnvironment,
         name: str | None = None,
     ) -> None:
+        account_type = (
+            AccountType.MARGIN
+            if str(config.account_type).lower() == "margin"
+            else AccountType.CASH
+        )
         super().__init__(
             loop=loop,
             client_id=ClientId(name or "ALPACA"),
             venue=ALPACA_VENUE,
             oms_type=OmsType.NETTING,
-            account_type=AccountType.CASH,
+            account_type=account_type,
             base_currency=None,
             instrument_provider=instrument_provider,
             msgbus=msgbus,
             cache=cache,
             clock=clock,
         )
+        self._account_type = account_type
 
         self._config = config
         self._api_key = api_key
@@ -242,22 +248,30 @@ class AlpacaExecutionClient(LiveExecutionClient):
 
         currency = Currency.from_str("USD")
 
-        # AccountBalance: total, locked, free
-        # For a cash account:
-        #   total = equity (or cash + long_market_value)
-        #   free  = buying_power (available to trade)
-        #   locked = total - free (used by open positions / margin)
         try:
             total = Decimal(str(account.equity))
         except Exception:
             total = cash
 
-        locked = total - buying_power if total >= buying_power else Decimal("0")
+        if self._account_type == AccountType.MARGIN:
+            # Margin account: buying_power is leveraged and can exceed equity, so
+            # it is not a meaningful "free" figure. Use the broker-reported
+            # initial_margin as the locked amount and derive free from equity.
+            try:
+                locked = Decimal(str(getattr(account, "initial_margin", 0) or 0))
+            except Exception:
+                locked = Decimal("0")
+            locked = min(locked, total) if total > 0 else Decimal("0")
+            free = total - locked
+        else:
+            # Cash account: buying_power is the cash available to trade.
+            free = buying_power
+            locked = total - buying_power if total >= buying_power else Decimal("0")
 
         balance = AccountBalance(
             total=Money(total, currency),
             locked=Money(locked, currency),
-            free=Money(buying_power, currency),
+            free=Money(free, currency),
         )
 
         self.generate_account_state(
