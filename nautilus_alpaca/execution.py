@@ -552,7 +552,7 @@ class AlpacaExecutionClient(LiveExecutionClient):
 
         try:
             qty = (
-                str(int(command.quantity.as_double()))
+                str(command.quantity)
                 if command.quantity
                 else None
             )
